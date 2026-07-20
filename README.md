@@ -3,7 +3,7 @@
 MeasureBox is a Linux X11 desktop overlay tool for web developers.
 It lets you draw persistent rectangles on top of any app and displays live pixel measurements.
 
-![MeasureBox measuring a UI element on a website with live pixel coordinates, dimensions, and color readout](docs/measurebox.png)
+![MeasureBox measuring a UI element on a website with live pixel coordinates, dimensions, and color readout](docs/measure-box.png)
 
 ## Features
 
