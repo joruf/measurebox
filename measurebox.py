@@ -364,7 +364,7 @@ class GlobalHotkeyListener:
 
 
 class GlobalCtrlClickListener:
-    """Listen for global Left-Alt+LeftClick to enter edit mode."""
+    """Listen for global Ctrl+LeftClick to enter edit mode."""
 
     def __init__(
         self,
@@ -375,7 +375,7 @@ class GlobalCtrlClickListener:
         """Store callback and initialize input listeners.
 
         :param on_ctrl_click: Callback receiving global click coordinates.
-        :param on_ctrl_state_changed: Callback for Left-Alt pressed/released state.
+        :param on_ctrl_state_changed: Callback for Ctrl pressed/released state.
         :param on_click: Callback receiving left double-click coordinates.
         """
         self.on_ctrl_click = on_ctrl_click
@@ -416,12 +416,12 @@ class GlobalCtrlClickListener:
             self.mouse_listener = None
 
     def _on_key_press(self, key) -> None:
-        """Track Left-Alt key down state.
+        """Track Ctrl key down state.
 
         :param key: Pressed key event.
         :return: None.
         """
-        if key == keyboard.Key.alt_l:
+        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
             emit_change = False
             with self._lock:
                 if not self._ctrl_down:
@@ -431,12 +431,12 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(True)
 
     def _on_key_release(self, key) -> None:
-        """Track Left-Alt key release state.
+        """Track Ctrl key release state.
 
         :param key: Released key event.
         :return: None.
         """
-        if key == keyboard.Key.alt_l:
+        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
             emit_change = False
             with self._lock:
                 if self._ctrl_down:
@@ -446,7 +446,7 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(False)
 
     def _on_click(self, x: float, y: float, button, pressed: bool) -> None:
-        """Emit callbacks for Left-Alt click and left double click.
+        """Emit callbacks for Ctrl click and left double click.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -1362,7 +1362,7 @@ class MeasureBoxController(QObject):
         QTimer.singleShot(250, self._stabilize_draw_mode_after_start)
         self._show_message(
             "MeasureBox active",
-            "Hold Left Alt + mouse for draw/edit | Esc: Clear all.",
+            "Hold Ctrl + mouse for draw/edit | Esc: Clear all.",
         )
 
     def shutdown(self) -> None:
@@ -1415,7 +1415,7 @@ class MeasureBoxController(QObject):
             self._show_message("MeasureBox", "Mode: PASS-THROUGH")
 
     def handle_ctrl_click_activation(self, x: int, y: int) -> None:
-        """Activate draw interaction when Left-Alt+LeftClick hits rectangle.
+        """Activate draw interaction when Ctrl+LeftClick hits rectangle.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -1427,9 +1427,9 @@ class MeasureBoxController(QObject):
             self.passthrough_mode_action.setChecked(False)
 
     def handle_ctrl_state_changed(self, pressed: bool) -> None:
-        """Switch between pass-through and draw interaction by Left-Alt state.
+        """Switch between pass-through and draw interaction by Ctrl state.
 
-        :param pressed: True while Left-Alt is pressed.
+        :param pressed: True while Ctrl is pressed.
         :return: None.
         """
         if pressed:
@@ -1587,7 +1587,7 @@ class MeasureBoxController(QObject):
             "About MeasureBox",
             (
                 "MeasureBox\n"
-                "X11 overlay ruler with Left-Alt edit and pass-through mode.\n\n"
+                "X11 overlay ruler with Ctrl-to-edit and pass-through mode.\n\n"
                 "Joachim Ruf\n"
                 "Loresoft\n"
                 "https://www.loresoft.de\n"
@@ -1603,8 +1603,8 @@ class MeasureBoxController(QObject):
         """
         shortcuts_menu = QMenu("Shortcuts & Controls", parent_menu)
         entries = [
-            "Hold Left Alt + Drag: Draw rectangle",
-            "Hold Left Alt + Click rectangle: Move/Resize",
+            "Hold Ctrl + Drag: Draw rectangle",
+            "Hold Ctrl + Click rectangle: Move/Resize",
             "Left Double Click: Pick color to clipboard",
             "Esc: Clear all rectangles",
             "Esc x3 quickly: Quit MeasureBox",
