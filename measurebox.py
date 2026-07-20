@@ -13,6 +13,7 @@ import threading
 from ctypes.util import find_library
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Callable
 
 REQUIRED_PACKAGES: dict[str, str] = {
@@ -765,12 +766,17 @@ class OverlayView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         self.setStyleSheet("background: transparent;")
-        self._base_window_flags = (
+        self._draw_window_flags = (
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
+            | Qt.WindowType.X11BypassWindowManagerHint
         )
-        self.setWindowFlags(self._base_window_flags)
+        self._passthrough_window_flags = (
+            self._draw_window_flags
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setWindowFlags(self._draw_window_flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._apply_virtual_geometry()
         self.show()
@@ -889,6 +895,18 @@ class OverlayView(QGraphicsView):
         """
         self._transparent_state_applied = None
         self._apply_mouse_transparency()
+
+    def ensure_visible_foreground(self) -> None:
+        """Ensure overlay and rectangle stay visible in the foreground.
+
+        :return: None.
+        """
+        if not self._items:
+            return
+        self.show()
+        self._ensure_scene_items_present()
+        self.raise_()
+        self.viewport().update()
 
     def clear_selection(self) -> None:
         """Unselect all rectangles.
@@ -1120,16 +1138,14 @@ class OverlayView(QGraphicsView):
             return
         previous_transparent = self._transparent_state_applied
         self._transparent_state_applied = transparent
-        # For real pass-through to other applications on X11, the native window
-        # must be marked as transparent for input.
-        window_flags = self._base_window_flags
+        # Use dedicated window flag profiles per mode. In pass-through we add
+        # an X11 WM bypass hint so the visible overlay is less likely to be
+        # pushed behind other windows after background clicks.
         if transparent:
-            window_flags |= Qt.WindowType.WindowTransparentForInput
+            window_flags = self._passthrough_window_flags | Qt.WindowType.WindowTransparentForInput
+        else:
+            window_flags = self._draw_window_flags
         if self.windowFlags() != window_flags:
-            # Transition from pass-through back to draw can require a remap on
-            # some X11 compositors to restore interactive input correctly.
-            if previous_transparent is True and transparent is False:
-                self.hide()
             self.setWindowFlags(window_flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent)
@@ -1236,7 +1252,7 @@ class MeasureBoxController(QObject):
         self.hotkey_bridge = GlobalHotkeyBridge()
         self.hotkey_bridge.draw_mode_requested.connect(self.activate_draw_mode)
         self.hotkey_bridge.passthrough_mode_requested.connect(self.activate_passthrough_mode)
-        self.hotkey_bridge.clear_requested.connect(self.clear_all_rectangles)
+        self.hotkey_bridge.clear_requested.connect(self.handle_esc_pressed)
         self.hotkey_bridge.ctrl_click_requested.connect(self.handle_ctrl_click_activation)
         self.hotkey_bridge.ctrl_state_changed.connect(self.handle_ctrl_state_changed)
         self.draw_mode_hotkey_listener_primary = GlobalHotkeyListener(
@@ -1263,6 +1279,11 @@ class MeasureBoxController(QObject):
         self.tray_icon = self._build_tray()
         self.edit_mode_enabled = True
         self.interaction_locked = True
+        self._esc_quit_window_seconds = 1.5
+        self._esc_press_times: list[float] = []
+        self.passthrough_refresh_timer = QTimer(self)
+        self.passthrough_refresh_timer.setInterval(1000)
+        self.passthrough_refresh_timer.timeout.connect(self.refresh_passthrough_mode)
 
     def start(self) -> None:
         """Start tray visibility and global listener.
@@ -1276,6 +1297,7 @@ class MeasureBoxController(QObject):
         self.passthrough_hotkey_listener_fallback.start()
         self.clear_hotkey_listener.start()
         self.ctrl_click_listener.start()
+        self.passthrough_refresh_timer.start()
         # Default to pass-through so normal clicks reach background apps.
         self.activate_passthrough_mode(show_message=False)
         # Re-apply draw readiness after event loop starts. Some X11 compositors
@@ -1298,6 +1320,7 @@ class MeasureBoxController(QObject):
         self.passthrough_hotkey_listener_fallback.stop()
         self.clear_hotkey_listener.stop()
         self.ctrl_click_listener.stop()
+        self.passthrough_refresh_timer.stop()
         self._save_config()
 
     def activate_draw_mode(self, show_message: bool = True) -> None:
@@ -1311,6 +1334,7 @@ class MeasureBoxController(QObject):
         self.overlay.set_interaction_lock(True)
         self.overlay.set_edit_mode(self.edit_mode_enabled)
         self.overlay.reapply_interaction_state()
+        self.overlay.ensure_visible_foreground()
         # Defensive re-apply in case a compositor ignores a prior flag toggle.
         self.overlay.set_interaction_lock(True)
         self.draw_mode_action.setChecked(True)
@@ -1328,6 +1352,7 @@ class MeasureBoxController(QObject):
         self.interaction_locked = False
         self.overlay.set_interaction_lock(False)
         self.overlay.set_edit_mode(self.edit_mode_enabled)
+        self.overlay.ensure_visible_foreground()
         self.draw_mode_action.setChecked(False)
         self.passthrough_mode_action.setChecked(True)
         if show_message:
@@ -1354,6 +1379,16 @@ class MeasureBoxController(QObject):
         if pressed:
             self.activate_draw_mode(show_message=False)
             return
+        self.activate_passthrough_mode(show_message=False)
+
+    def refresh_passthrough_mode(self) -> None:
+        """Re-apply pass-through mode every second when currently active.
+
+        :return: None.
+        """
+        if self.interaction_locked:
+            return
+        self.overlay.ensure_visible_foreground()
         self.activate_passthrough_mode(show_message=False)
 
     def _stabilize_draw_mode_after_start(self) -> None:
@@ -1409,6 +1444,26 @@ class MeasureBoxController(QObject):
         # After clearing, always return to draw-ready state.
         self.activate_draw_mode(show_message=False)
         self._show_message("MeasureBox", "All rectangles cleared.")
+
+    def handle_esc_pressed(self) -> None:
+        """Clear overlay and quit when Esc is pressed three times quickly.
+
+        :return: None.
+        """
+        now = monotonic()
+        self._esc_press_times = [
+            timestamp
+            for timestamp in self._esc_press_times
+            if now - timestamp <= self._esc_quit_window_seconds
+        ]
+        self._esc_press_times.append(now)
+
+        if len(self._esc_press_times) >= 3:
+            self._show_message("MeasureBox", "Esc x3 detected. Exiting MeasureBox.")
+            self.quit_application()
+            return
+
+        self.clear_all_rectangles()
 
     def toggle_autostart(self, checked: bool) -> None:
         """Enable or disable Linux desktop autostart.
