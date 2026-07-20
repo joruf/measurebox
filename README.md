@@ -5,6 +5,8 @@ It lets you draw persistent rectangles on top of any app and displays live pixel
 
 ![MeasureBox measuring a UI element on a website with live pixel coordinates, dimensions, and color readout](docs/measure-box.png)
 
+![MeasureBox overlay with additional measurement details](docs/measure-box2.png)
+
 ## Features
 
 - Global mode hotkeys: `Ctrl+Shift+D` or `Ctrl+Shift+R` (Draw), `Ctrl+Shift+P` or `Ctrl+Shift+S` (Pass-through)
