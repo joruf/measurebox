@@ -16,42 +16,16 @@ It lets you draw persistent rectangles on top of any app and displays live pixel
 - Settings persistence in `~/.config/measurebox/config.json`
 - Optional autostart via `~/.config/autostart/measurebox.desktop`
 
-## Installation
-
-```bash
-cd /home/joruf/Applications/measurebox
-python3 install_dependencies.py
-```
-
-The installer also tries to install required Linux Qt/X11 system packages (for example `libxcb-cursor0` on Debian/Ubuntu based distributions). It may prompt for `sudo`.
-
-## Run
-
-```bash
-cd /home/joruf/Applications/measurebox
-./start_measurebox.sh
-```
-
-`start_measurebox.sh` prints clear status messages, installs dependencies when needed, and starts the app with `.venv/bin/python`.
-When dependencies are missing, MeasureBox can also auto-run `install_dependencies.py` and restart with `.venv/bin/python`.
-During first-time setup, a small GUI window shows installation progress (disable with `MEASUREBOX_INSTALL_GUI=0`).
-
-## Desktop/Autostart Launcher
-
-Use the desktop-oriented launcher when integrating with login/autostart:
-
-```bash
-cd /home/joruf/Applications/measurebox
-./start_measurebox_desktop.sh
-```
-
-It writes startup and error logs to:
-
-- `~/.local/state/measurebox/startup.log` (or `$XDG_STATE_HOME/measurebox/startup.log`)
-
-Autostart entries created from MeasureBox tray now use this launcher automatically.
-
 ## Usage
+
+```bash
+git clone https://github.com/joruf/measurebox.git
+cd measurebox
+chmod +x measurebox.py
+./measurebox.py
+```
+
+On first start, MeasureBox installs missing dependencies automatically (Python packages and Linux Qt/X11 libraries). A small setup window may appear.
 
 - Switch to Draw Mode with `Ctrl+Shift+D` (fallback: `Ctrl+Shift+R`)
 - Switch to Pass-through Mode with `Ctrl+Shift+P` (fallback: `Ctrl+Shift+S`, background apps receive scroll/click input)
@@ -63,11 +37,11 @@ Autostart entries created from MeasureBox tray now use this launcher automatical
   - Press `Delete` to remove selected rectangle
   - Pointer on rectangle border automatically enables interaction
 - Clicking beside the rectangle switches to pass-through mode
+- Optional autostart: enable **Enable Autostart** in the tray menu
 
 ## Automated Tests
 
 ```bash
-cd /home/joruf/Applications/measurebox
 .venv/bin/python -m pytest -q
 ```
 
