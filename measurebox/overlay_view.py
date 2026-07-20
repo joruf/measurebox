@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pynput import mouse
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QGuiApplication, QKeyEvent, QMouseEvent, QPainter
+from PyQt6.QtGui import QColor, QCursor, QGuiApplication, QKeyEvent, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from measurebox.geometry import normalize_rect
@@ -40,6 +40,8 @@ class OverlayView(QGraphicsView):
         self._transparent_state_applied: bool | None = None
         self._ruler_enabled = False
         self._ruler_outside = False
+        self._crosshair_enabled = True
+        self._crosshair_scene_pos: QPointF | None = None
         self._mouse_controller = mouse.Controller()
         self._forwarding_wheel = False
         self._wheel_angle_remainder_x = 0
@@ -105,6 +107,41 @@ class OverlayView(QGraphicsView):
         self._ruler_outside = outside
         for item in self._items:
             item.set_ruler_options(enabled, outside)
+
+    def set_crosshair_enabled(self, enabled: bool) -> None:
+        """Enable or disable Ctrl crosshair rendering.
+
+        :param enabled: True to show crosshair while Ctrl is held.
+        :return: None.
+        """
+        self._crosshair_enabled = enabled
+        if not enabled:
+            self.clear_crosshair()
+            return
+        self.viewport().update()
+
+    def set_crosshair_at_global(self, x: int, y: int) -> None:
+        """Update crosshair position from global screen coordinates.
+
+        :param x: Global X coordinate at cursor hotspot.
+        :param y: Global Y coordinate at cursor hotspot.
+        :return: None.
+        """
+        if not self._crosshair_enabled:
+            return
+        local_pos = self.mapFromGlobal(QPointF(float(x), float(y)).toPoint())
+        self._crosshair_scene_pos = self.mapToScene(local_pos)
+        self.viewport().update()
+
+    def clear_crosshair(self) -> None:
+        """Hide the Ctrl crosshair overlay.
+
+        :return: None.
+        """
+        if self._crosshair_scene_pos is None:
+            return
+        self._crosshair_scene_pos = None
+        self.viewport().update()
 
     def set_edit_mode(self, enabled: bool) -> None:
         """Enable or disable interactive editing mode.
@@ -446,6 +483,33 @@ class OverlayView(QGraphicsView):
         finally:
             self._forwarding_wheel = False
         event.accept()
+
+    def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # type: ignore[override]
+        """Draw transient Ctrl crosshair at the current cursor hotspot.
+
+        :param painter: Scene foreground painter.
+        :param rect: Scene update rectangle.
+        :return: None.
+        """
+        super().drawForeground(painter, rect)
+        if not self._crosshair_enabled or self._crosshair_scene_pos is None:
+            return
+
+        center = self._crosshair_scene_pos
+        bounds = self.sceneRect()
+        crosshair_color = QColor(self._line_color)
+        crosshair_color.setAlpha(255)
+        pen = QPen(crosshair_color, 1.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.drawLine(
+            QPointF(bounds.left(), center.y()),
+            QPointF(bounds.right(), center.y()),
+        )
+        painter.drawLine(
+            QPointF(center.x(), bounds.top()),
+            QPointF(center.x(), bounds.bottom()),
+        )
 
     def _cancel_drawing(self) -> None:
         """Abort active drawing preview and remove temporary shape.

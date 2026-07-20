@@ -30,6 +30,7 @@ def test_config_manager_roundtrip(tmp_path: Path) -> None:
         line_rgba=(10, 20, 30, 40),
         fill_rgba=(50, 60, 70, 80),
         autostart_enabled=True,
+        crosshair_enabled=False,
     )
     manager.save(expected)
     loaded = manager.load()

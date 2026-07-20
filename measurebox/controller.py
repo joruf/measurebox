@@ -44,10 +44,12 @@ class MeasureBoxController(QObject):
         self.status_notifications_enabled = self.config.status_notifications_enabled
         self.ruler_enabled = self.config.ruler_enabled
         self.ruler_outside = self.config.ruler_outside
+        self.crosshair_enabled = self.config.crosshair_enabled
         self.line_color = QColor(*self.config.line_rgba)
         self.fill_color = QColor(*self.config.fill_rgba)
         self.overlay = OverlayView(self.line_color, self.fill_color)
         self.overlay.set_ruler_options(self.ruler_enabled, self.ruler_outside)
+        self.overlay.set_crosshair_enabled(self.crosshair_enabled)
         self.hotkey_bridge = GlobalHotkeyBridge()
         self.hotkey_bridge.draw_mode_requested.connect(self.activate_draw_mode)
         self.hotkey_bridge.passthrough_mode_requested.connect(self.activate_passthrough_mode)
@@ -177,6 +179,7 @@ class MeasureBoxController(QObject):
         :param y: Global Y coordinate.
         :return: None.
         """
+        self._update_crosshair_at(x, y)
         self._activate_ctrl_interaction_at(x, y)
 
     def handle_ctrl_state_changed(self, pressed: bool) -> None:
@@ -187,8 +190,10 @@ class MeasureBoxController(QObject):
         """
         self._ctrl_physically_held = pressed
         if pressed:
+            self._update_crosshair_at_cursor()
             self._activate_ctrl_interaction_at_cursor()
             return
+        self.overlay.clear_crosshair()
         self.activate_passthrough_mode(show_message=False)
 
     def handle_ctrl_hover(self, x: int, y: int) -> None:
@@ -200,6 +205,8 @@ class MeasureBoxController(QObject):
         """
         if not self._ctrl_physically_held:
             return
+        if self.crosshair_enabled:
+            self.overlay.set_crosshair_at_global(x, y)
         if not self.overlay.is_global_point_on_active_item(x, y):
             return
         self._activate_ctrl_interaction_at(x, y)
@@ -210,7 +217,27 @@ class MeasureBoxController(QObject):
         :return: None.
         """
         cursor_pos = QCursor.pos()
+        self._update_crosshair_at(cursor_pos.x(), cursor_pos.y())
         self._activate_ctrl_interaction_at(cursor_pos.x(), cursor_pos.y())
+
+    def _update_crosshair_at_cursor(self) -> None:
+        """Update crosshair position for the current cursor hotspot.
+
+        :return: None.
+        """
+        cursor_pos = QCursor.pos()
+        self._update_crosshair_at(cursor_pos.x(), cursor_pos.y())
+
+    def _update_crosshair_at(self, x: int, y: int) -> None:
+        """Update crosshair position when the feature is enabled.
+
+        :param x: Global X coordinate.
+        :param y: Global Y coordinate.
+        :return: None.
+        """
+        if not self.crosshair_enabled:
+            return
+        self.overlay.set_crosshair_at_global(x, y)
 
     def _activate_ctrl_interaction_at(self, x: int, y: int) -> None:
         """Activate draw or rectangle interaction for a global point.
@@ -417,6 +444,19 @@ class MeasureBoxController(QObject):
         self.config.ruler_outside = checked
         self._save_config()
 
+    def toggle_crosshair_enabled(self, checked: bool) -> None:
+        """Enable or disable crosshair rendering while Ctrl is held.
+
+        :param checked: Action checked state.
+        :return: None.
+        """
+        self.crosshair_enabled = checked
+        self.overlay.set_crosshair_enabled(checked)
+        if checked and self._ctrl_physically_held:
+            self._update_crosshair_at_cursor()
+        self.config.crosshair_enabled = checked
+        self._save_config()
+
     def quit_application(self) -> None:
         """Exit the application cleanly.
 
@@ -456,6 +496,7 @@ class MeasureBoxController(QObject):
         entries = [
             "Hold Ctrl + Drag: Draw rectangle",
             "Hold Ctrl + Click rectangle: Move/Resize",
+            "Hold Ctrl: Show crosshair at cursor",
             "Ctrl + Left Double Click: Pick color to clipboard",
             "Esc: Clear all rectangles",
             "Esc x3 quickly: Quit MeasureBox",
@@ -535,6 +576,12 @@ class MeasureBoxController(QObject):
         self.ruler_outside_action.setEnabled(self.ruler_enabled)
         self.ruler_outside_action.toggled.connect(self.toggle_ruler_outside)
         menu.addAction(self.ruler_outside_action)
+
+        self.crosshair_action = QAction("Show Ctrl Crosshair", menu)
+        self.crosshair_action.setCheckable(True)
+        self.crosshair_action.setChecked(self.crosshair_enabled)
+        self.crosshair_action.toggled.connect(self.toggle_crosshair_enabled)
+        menu.addAction(self.crosshair_action)
 
         menu.addSeparator()
         menu.addMenu(self._build_shortcuts_menu(menu))
@@ -627,4 +674,5 @@ class MeasureBoxController(QObject):
         self.config.status_notifications_enabled = self.status_notifications_enabled
         self.config.ruler_enabled = self.ruler_enabled
         self.config.ruler_outside = self.ruler_outside
+        self.config.crosshair_enabled = self.crosshair_enabled
         self.config_manager.save(self.config)

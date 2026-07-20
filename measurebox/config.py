@@ -17,6 +17,7 @@ class AppConfig:
     status_notifications_enabled: bool = True
     ruler_enabled: bool = False
     ruler_outside: bool = False
+    crosshair_enabled: bool = True
 
 
 class ConfigManager:
@@ -48,6 +49,7 @@ class ConfigManager:
         status_notifications_enabled = bool(payload.get("status_notifications_enabled", True))
         ruler_enabled = bool(payload.get("ruler_enabled", False))
         ruler_outside = bool(payload.get("ruler_outside", False))
+        crosshair_enabled = bool(payload.get("crosshair_enabled", True))
         return AppConfig(
             line_rgba=line_rgba,
             fill_rgba=fill_rgba,
@@ -55,6 +57,7 @@ class ConfigManager:
             status_notifications_enabled=status_notifications_enabled,
             ruler_enabled=ruler_enabled,
             ruler_outside=ruler_outside,
+            crosshair_enabled=crosshair_enabled,
         )
 
     def save(self, config: AppConfig) -> None:
@@ -71,6 +74,7 @@ class ConfigManager:
             "status_notifications_enabled": config.status_notifications_enabled,
             "ruler_enabled": config.ruler_enabled,
             "ruler_outside": config.ruler_outside,
+            "crosshair_enabled": config.crosshair_enabled,
         }
         self.config_path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=True),
