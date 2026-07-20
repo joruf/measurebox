@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from measurebox.autostart import AutostartManager
 from measurebox.config import AppConfig, ConfigManager
-from measurebox.geometry import normalize_rect
 
 __all__ = [
     "AppConfig",
@@ -14,6 +15,19 @@ __all__ = [
     "normalize_rect",
     "run",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-load symbols that require optional runtime dependencies.
+
+    :param name: Requested attribute name.
+    :return: Loaded symbol.
+    """
+    if name == "normalize_rect":
+        from measurebox.geometry import normalize_rect
+
+        return normalize_rect
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def run() -> int:
@@ -31,6 +45,9 @@ def main() -> int:
 
     :return: Process exit code.
     """
-    from measurebox.app import main as _main
+    from measurebox.bootstrap import ensure_runtime_dependencies
 
-    return _main()
+    ensure_runtime_dependencies()
+    from measurebox.app import main as _run_main
+
+    return _run_main()

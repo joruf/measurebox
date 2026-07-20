@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF
@@ -76,3 +78,28 @@ def test_should_show_install_gui_respects_display_and_env(monkeypatch) -> None:
 
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
     assert should_show_install_gui() is True
+
+
+def test_launcher_imports_work_without_pyqt6() -> None:
+    """Entry scripts must bootstrap before importing PyQt6-dependent modules."""
+    project_root = Path(__file__).resolve().parent.parent
+    script = """
+import sys
+
+sys.path.insert(0, %r)
+blocked = type(sys)("PyQt6")
+sys.modules["PyQt6"] = blocked
+from measurebox.bootstrap import ensure_runtime_dependencies, detect_missing_dependencies
+from measurebox.config import AppConfig
+from measurebox.autostart import AutostartManager
+print("launcher-import-ok")
+""" % str(project_root)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "launcher-import-ok" in result.stdout

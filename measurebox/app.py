@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import sys
-
-from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
-
 from measurebox.bootstrap import ensure_runtime_dependencies, ensure_system_runtime_dependencies
-from measurebox.controller import MeasureBoxController
 
 
 def run() -> int:
@@ -15,6 +10,12 @@ def run() -> int:
 
     :return: Process exit code.
     """
+    import sys
+
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+
+    from measurebox.controller import MeasureBoxController
+
     ensure_system_runtime_dependencies()
     app = QApplication(sys.argv)
     if not QSystemTrayIcon.isSystemTrayAvailable():
