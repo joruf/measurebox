@@ -135,11 +135,13 @@ from PyQt6.QtGui import (
     QActionGroup,
     QColor,
     QCursor,
+    QFont,
     QGuiApplication,
     QIcon,
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
 )
@@ -149,7 +151,6 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsRectItem,
     QGraphicsScene,
-    QGraphicsSimpleTextItem,
     QGraphicsView,
     QMenu,
     QMessageBox,
@@ -507,9 +508,10 @@ class ResizableRectItem(QGraphicsRectItem):
         self._active_handle: str | None = None
         self._is_resizing = False
         self._picked_color_hex = "-"
-        self._label_item = QGraphicsSimpleTextItem("", self)
-        self._label_item.setBrush(QColor(255, 255, 255, 235))
-        self._label_item.setZValue(2)
+        self._picked_position_text = "-"
+        self._label_text = ""
+        self._label_font = QFont()
+        self._label_font.setPointSize(9)
         self._apply_style()
         self._update_measure_label()
 
@@ -534,6 +536,16 @@ class ResizableRectItem(QGraphicsRectItem):
         self._picked_color_hex = color_hex
         self._update_measure_label()
 
+    def set_picked_position(self, x: int, y: int) -> None:
+        """Set sampled mouse position text shown in the measure label.
+
+        :param x: Picked global X position.
+        :param y: Picked global Y position.
+        :return: None.
+        """
+        self._picked_position_text = f"{x},{y}"
+        self._update_measure_label()
+
     def boundingRect(self) -> QRectF:
         """Return item bounds including handle area.
 
@@ -551,6 +563,7 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: None.
         """
         super().paint(painter, option, widget)
+        self._draw_label(painter)
         if not self.isSelected():
             return
         painter.save()
@@ -658,12 +671,30 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: None.
         """
         scene_rect = self._scene_rect()
-        self._label_item.setText(
+        self._label_text = (
             f"x:{int(scene_rect.x())} y:{int(scene_rect.y())}  "
             f"w:{int(scene_rect.width())} h:{int(scene_rect.height())}  "
-            f"color:{self._picked_color_hex}"
+            f"color:{self._picked_color_hex}  mouse:{self._picked_position_text}px"
         )
-        self._label_item.setPos(QPointF(6.0, 4.0))
+        self.update()
+
+    def _draw_label(self, painter: QPainter) -> None:
+        """Draw label text in plain black.
+
+        :param painter: Active painter.
+        :return: None.
+        """
+        if not self._label_text:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        path = QPainterPath()
+        baseline = QPointF(6.0, 16.0)
+        path.addText(baseline, self._label_font, self._label_text)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 235))
+        painter.drawPath(path)
+        painter.restore()
 
     def _set_cursor_for_handle(self, handle: str | None) -> None:
         """Set resize/move cursor based on handle identifier.
@@ -968,16 +999,19 @@ class OverlayView(QGraphicsView):
         self._items.clear()
         self._preview_item = None
 
-    def set_active_picked_color(self, color_hex: str) -> None:
-        """Set sampled color text on the active rectangle label.
+    def set_active_pick_result(self, color_hex: str, x: int, y: int) -> None:
+        """Set sampled color and position text on active rectangle label.
 
         :param color_hex: Picked color in hex format.
+        :param x: Picked global X position.
+        :param y: Picked global Y position.
         :return: None.
         """
         if not self._items:
             return
         active_item = self._items[-1]
         active_item.set_picked_color_hex(color_hex)
+        active_item.set_picked_position(x, y)
 
     def delete_selected(self) -> None:
         """Delete currently selected rectangles.
@@ -1457,7 +1491,7 @@ class MeasureBoxController(QObject):
         color_hex = color.name(QColor.NameFormat.HexRgb).upper()
         clipboard = self.app.clipboard()
         clipboard.setText(color_hex)
-        self.overlay.set_active_picked_color(color_hex)
+        self.overlay.set_active_pick_result(color_hex, x, y)
         self._show_message("MeasureBox", f"Color {color_hex} copied to clipboard.", desktop_notification=True)
 
     def refresh_passthrough_mode(self) -> None:
