@@ -169,7 +169,7 @@ def main() -> int:
         return install_code
 
     print("MeasureBox installer: done.")
-    print("Start command: .venv/bin/python measurebox.py")
+    print("Start command: .venv/bin/python -m measurebox")
     return 0
 
 

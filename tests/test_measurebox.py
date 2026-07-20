@@ -7,6 +7,8 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF
 
 from measurebox import AppConfig, AutostartManager, ConfigManager, normalize_rect
+from measurebox.bootstrap import should_show_install_gui
+from measurebox.install_progress_gui import map_installer_line_to_status
 
 
 def test_normalize_rect_orders_points_correctly() -> None:
@@ -45,3 +47,32 @@ def test_autostart_manager_enable_disable(tmp_path: Path) -> None:
 
     manager.disable()
     assert manager.is_enabled() is False
+
+
+def test_map_installer_line_to_status() -> None:
+    """Installer log lines should map to readable setup status messages."""
+    assert map_installer_line_to_status("MeasureBox installer: creating virtual environment...") == (
+        "Creating Python virtual environment..."
+    )
+    assert map_installer_line_to_status("MeasureBox installer: done.") == (
+        "Installation complete. Starting MeasureBox..."
+    )
+    assert map_installer_line_to_status("") is None
+
+
+def test_should_show_install_gui_respects_display_and_env(monkeypatch) -> None:
+    """Install GUI should only activate when enabled and a display is present."""
+    monkeypatch.delenv("MEASUREBOX_INSTALL_GUI", raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert should_show_install_gui() is True
+
+    monkeypatch.setenv("MEASUREBOX_INSTALL_GUI", "0")
+    assert should_show_install_gui() is False
+
+    monkeypatch.delenv("MEASUREBOX_INSTALL_GUI", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    assert should_show_install_gui() is False
+
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert should_show_install_gui() is True

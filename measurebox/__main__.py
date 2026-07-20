@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Backward-compatible launcher for MeasureBox."""
+"""Module entry point for ``python -m measurebox``."""
 
 from __future__ import annotations
 

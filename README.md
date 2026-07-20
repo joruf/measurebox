@@ -3,6 +3,8 @@
 MeasureBox is a Linux X11 desktop overlay tool for web developers.
 It lets you draw persistent rectangles on top of any app and displays live pixel measurements.
 
+![MeasureBox measuring a UI element on a website with live pixel coordinates, dimensions, and color readout](docs/measurebox-ui-measurement-example.png)
+
 ## Features
 
 - Global mode hotkeys: `Ctrl+Shift+D` or `Ctrl+Shift+R` (Draw), `Ctrl+Shift+P` or `Ctrl+Shift+S` (Pass-through)
@@ -31,7 +33,8 @@ cd /home/joruf/Applications/measurebox
 ```
 
 `start_measurebox.sh` prints clear status messages, installs dependencies when needed, and starts the app with `.venv/bin/python`.
-When dependencies are missing, `measurebox.py` can also auto-run `install_dependencies.py` and restart with `.venv/bin/python`.
+When dependencies are missing, MeasureBox can also auto-run `install_dependencies.py` and restart with `.venv/bin/python`.
+During first-time setup, a small GUI window shows installation progress (disable with `MEASUREBOX_INSTALL_GUI=0`).
 
 ## Desktop/Autostart Launcher
 
