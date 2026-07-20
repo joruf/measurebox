@@ -13,6 +13,7 @@ import threading
 from ctypes.util import find_library
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import which
 from time import monotonic
 from typing import Callable
 
@@ -128,7 +129,7 @@ def ensure_runtime_dependencies() -> None:
 ensure_runtime_dependencies()
 
 from pynput import keyboard, mouse
-from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
@@ -201,6 +202,7 @@ class AppConfig:
     line_rgba: tuple[int, int, int, int] = (0, 255, 0, 179)
     fill_rgba: tuple[int, int, int, int] = (0, 255, 0, 51)
     autostart_enabled: bool = False
+    status_notifications_enabled: bool = True
 
 
 class ConfigManager:
@@ -229,10 +231,12 @@ class ConfigManager:
         line_rgba = self._as_rgba(payload.get("line_rgba"), (0, 255, 0, 179))
         fill_rgba = self._as_rgba(payload.get("fill_rgba"), (0, 255, 0, 51))
         autostart_enabled = bool(payload.get("autostart_enabled", False))
+        status_notifications_enabled = bool(payload.get("status_notifications_enabled", True))
         return AppConfig(
             line_rgba=line_rgba,
             fill_rgba=fill_rgba,
             autostart_enabled=autostart_enabled,
+            status_notifications_enabled=status_notifications_enabled,
         )
 
     def save(self, config: AppConfig) -> None:
@@ -246,6 +250,7 @@ class ConfigManager:
             "line_rgba": list(config.line_rgba),
             "fill_rgba": list(config.fill_rgba),
             "autostart_enabled": config.autostart_enabled,
+            "status_notifications_enabled": config.status_notifications_enabled,
         }
         self.config_path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=True),
@@ -324,6 +329,7 @@ class GlobalHotkeyBridge(QObject):
     clear_requested = pyqtSignal()
     ctrl_click_requested = pyqtSignal(int, int)
     ctrl_state_changed = pyqtSignal(bool)
+    color_pick_requested = pyqtSignal(int, int)
 
 
 class GlobalHotkeyListener:
@@ -358,22 +364,29 @@ class GlobalHotkeyListener:
 
 
 class GlobalCtrlClickListener:
-    """Listen for global Ctrl+LeftClick to enter edit mode."""
+    """Listen for global Left-Alt+LeftClick to enter edit mode."""
 
     def __init__(
         self,
         on_ctrl_click: Callable[[int, int], None],
         on_ctrl_state_changed: Callable[[bool], None],
+        on_click: Callable[[int, int], None],
     ) -> None:
         """Store callback and initialize input listeners.
 
         :param on_ctrl_click: Callback receiving global click coordinates.
-        :param on_ctrl_state_changed: Callback for Ctrl pressed/released state.
+        :param on_ctrl_state_changed: Callback for Left-Alt pressed/released state.
+        :param on_click: Callback receiving left double-click coordinates.
         """
         self.on_ctrl_click = on_ctrl_click
         self.on_ctrl_state_changed = on_ctrl_state_changed
+        self.on_click = on_click
         self._ctrl_down = False
         self._lock = threading.Lock()
+        self._double_click_interval_seconds = 0.35
+        self._double_click_max_distance_px = 6
+        self._last_left_click_time = 0.0
+        self._last_left_click_pos: tuple[int, int] | None = None
         self.keyboard_listener: keyboard.Listener | None = None
         self.mouse_listener: mouse.Listener | None = None
 
@@ -403,12 +416,12 @@ class GlobalCtrlClickListener:
             self.mouse_listener = None
 
     def _on_key_press(self, key) -> None:
-        """Track Ctrl key down state.
+        """Track Left-Alt key down state.
 
         :param key: Pressed key event.
         :return: None.
         """
-        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
+        if key == keyboard.Key.alt_l:
             emit_change = False
             with self._lock:
                 if not self._ctrl_down:
@@ -418,12 +431,12 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(True)
 
     def _on_key_release(self, key) -> None:
-        """Track Ctrl key release state.
+        """Track Left-Alt key release state.
 
         :param key: Released key event.
         :return: None.
         """
-        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
+        if key == keyboard.Key.alt_l:
             emit_change = False
             with self._lock:
                 if self._ctrl_down:
@@ -433,7 +446,7 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(False)
 
     def _on_click(self, x: float, y: float, button, pressed: bool) -> None:
-        """Emit callback when Ctrl+LeftClick is detected.
+        """Emit callbacks for Left-Alt click and left double click.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -443,10 +456,28 @@ class GlobalCtrlClickListener:
         """
         if not pressed or button != mouse.Button.left:
             return
+        current_x = int(x)
+        current_y = int(y)
+        now = monotonic()
+        previous_pos = self._last_left_click_pos
+        elapsed = now - self._last_left_click_time
+        self._last_left_click_time = now
+        self._last_left_click_pos = (current_x, current_y)
+
+        if previous_pos is not None:
+            distance_x = abs(current_x - previous_pos[0])
+            distance_y = abs(current_y - previous_pos[1])
+            if (
+                elapsed <= self._double_click_interval_seconds
+                and distance_x <= self._double_click_max_distance_px
+                and distance_y <= self._double_click_max_distance_px
+            ):
+                self.on_click(current_x, current_y)
+
         with self._lock:
             ctrl_down = self._ctrl_down
         if ctrl_down:
-            self.on_ctrl_click(int(x), int(y))
+            self.on_ctrl_click(current_x, current_y)
 
 
 class ResizableRectItem(QGraphicsRectItem):
@@ -475,6 +506,7 @@ class ResizableRectItem(QGraphicsRectItem):
         self._fill_color = QColor(fill_color)
         self._active_handle: str | None = None
         self._is_resizing = False
+        self._picked_color_hex = "-"
         self._label_item = QGraphicsSimpleTextItem("", self)
         self._label_item.setBrush(QColor(255, 255, 255, 235))
         self._label_item.setZValue(2)
@@ -492,6 +524,15 @@ class ResizableRectItem(QGraphicsRectItem):
         self._fill_color = QColor(fill_color)
         self._apply_style()
         self.update()
+
+    def set_picked_color_hex(self, color_hex: str) -> None:
+        """Set sampled color text shown in the measure label.
+
+        :param color_hex: Picked color in hex format.
+        :return: None.
+        """
+        self._picked_color_hex = color_hex
+        self._update_measure_label()
 
     def boundingRect(self) -> QRectF:
         """Return item bounds including handle area.
@@ -619,7 +660,8 @@ class ResizableRectItem(QGraphicsRectItem):
         scene_rect = self._scene_rect()
         self._label_item.setText(
             f"x:{int(scene_rect.x())} y:{int(scene_rect.y())}  "
-            f"w:{int(scene_rect.width())} h:{int(scene_rect.height())}"
+            f"w:{int(scene_rect.width())} h:{int(scene_rect.height())}  "
+            f"color:{self._picked_color_hex}"
         )
         self._label_item.setPos(QPointF(6.0, 4.0))
 
@@ -925,6 +967,17 @@ class OverlayView(QGraphicsView):
             self.scene.removeItem(item)
         self._items.clear()
         self._preview_item = None
+
+    def set_active_picked_color(self, color_hex: str) -> None:
+        """Set sampled color text on the active rectangle label.
+
+        :param color_hex: Picked color in hex format.
+        :return: None.
+        """
+        if not self._items:
+            return
+        active_item = self._items[-1]
+        active_item.set_picked_color_hex(color_hex)
 
     def delete_selected(self) -> None:
         """Delete currently selected rectangles.
@@ -1246,6 +1299,7 @@ class MeasureBoxController(QObject):
         self.config = self.config_manager.load()
         if self.autostart_manager.is_enabled():
             self.config.autostart_enabled = True
+        self.status_notifications_enabled = self.config.status_notifications_enabled
         self.line_color = QColor(*self.config.line_rgba)
         self.fill_color = QColor(*self.config.fill_rgba)
         self.overlay = OverlayView(self.line_color, self.fill_color)
@@ -1255,6 +1309,7 @@ class MeasureBoxController(QObject):
         self.hotkey_bridge.clear_requested.connect(self.handle_esc_pressed)
         self.hotkey_bridge.ctrl_click_requested.connect(self.handle_ctrl_click_activation)
         self.hotkey_bridge.ctrl_state_changed.connect(self.handle_ctrl_state_changed)
+        self.hotkey_bridge.color_pick_requested.connect(self.handle_color_pick_at)
         self.draw_mode_hotkey_listener_primary = GlobalHotkeyListener(
             "<ctrl>+<shift>+d",
             self.hotkey_bridge.draw_mode_requested.emit,
@@ -1275,6 +1330,7 @@ class MeasureBoxController(QObject):
         self.ctrl_click_listener = GlobalCtrlClickListener(
             self.hotkey_bridge.ctrl_click_requested.emit,
             self.hotkey_bridge.ctrl_state_changed.emit,
+            self.hotkey_bridge.color_pick_requested.emit,
         )
         self.tray_icon = self._build_tray()
         self.edit_mode_enabled = True
@@ -1306,7 +1362,7 @@ class MeasureBoxController(QObject):
         QTimer.singleShot(250, self._stabilize_draw_mode_after_start)
         self._show_message(
             "MeasureBox active",
-            "Hold Ctrl + mouse for draw/edit | Esc: Clear all.",
+            "Hold Left Alt + mouse for draw/edit | Esc: Clear all.",
         )
 
     def shutdown(self) -> None:
@@ -1359,7 +1415,7 @@ class MeasureBoxController(QObject):
             self._show_message("MeasureBox", "Mode: PASS-THROUGH")
 
     def handle_ctrl_click_activation(self, x: int, y: int) -> None:
-        """Activate draw interaction when Ctrl+LeftClick hits rectangle.
+        """Activate draw interaction when Left-Alt+LeftClick hits rectangle.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -1371,15 +1427,38 @@ class MeasureBoxController(QObject):
             self.passthrough_mode_action.setChecked(False)
 
     def handle_ctrl_state_changed(self, pressed: bool) -> None:
-        """Switch between pass-through and draw interaction by Ctrl state.
+        """Switch between pass-through and draw interaction by Left-Alt state.
 
-        :param pressed: True while Ctrl is pressed.
+        :param pressed: True while Left-Alt is pressed.
         :return: None.
         """
         if pressed:
             self.activate_draw_mode(show_message=False)
             return
         self.activate_passthrough_mode(show_message=False)
+
+    def handle_color_pick_at(self, x: int, y: int) -> None:
+        """Pick color at global screen coordinates and copy it to clipboard.
+
+        :param x: Global X coordinate.
+        :param y: Global Y coordinate.
+        :return: None.
+        """
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+
+        sample = screen.grabWindow(0, x, y, 1, 1)
+        image = sample.toImage()
+        if image.isNull() or image.width() < 1 or image.height() < 1:
+            return
+
+        color = image.pixelColor(0, 0)
+        color_hex = color.name(QColor.NameFormat.HexRgb).upper()
+        clipboard = self.app.clipboard()
+        clipboard.setText(color_hex)
+        self.overlay.set_active_picked_color(color_hex)
+        self._show_message("MeasureBox", f"Color {color_hex} copied to clipboard.", desktop_notification=True)
 
     def refresh_passthrough_mode(self) -> None:
         """Re-apply pass-through mode every second when currently active.
@@ -1480,6 +1559,16 @@ class MeasureBoxController(QObject):
         self.config.autostart_enabled = checked
         self._save_config()
 
+    def toggle_status_notifications(self, checked: bool) -> None:
+        """Enable or disable status notifications.
+
+        :param checked: Action checked state.
+        :return: None.
+        """
+        self.status_notifications_enabled = checked
+        self.config.status_notifications_enabled = checked
+        self._save_config()
+
     def quit_application(self) -> None:
         """Exit the application cleanly.
 
@@ -1498,13 +1587,35 @@ class MeasureBoxController(QObject):
             "About MeasureBox",
             (
                 "MeasureBox\n"
-                "X11 overlay ruler with Ctrl-to-edit and pass-through mode.\n\n"
+                "X11 overlay ruler with Left-Alt edit and pass-through mode.\n\n"
                 "Joachim Ruf\n"
                 "Loresoft\n"
                 "https://www.loresoft.de\n"
                 "https://github.com/joruf/"
             ),
         )
+
+    def _build_shortcuts_menu(self, parent_menu: QMenu) -> QMenu:
+        """Build a read-only menu section listing all shortcuts and controls.
+
+        :param parent_menu: Parent tray menu.
+        :return: Configured shortcuts submenu.
+        """
+        shortcuts_menu = QMenu("Shortcuts & Controls", parent_menu)
+        entries = [
+            "Hold Left Alt + Drag: Draw rectangle",
+            "Hold Left Alt + Click rectangle: Move/Resize",
+            "Left Double Click: Pick color to clipboard",
+            "Esc: Clear all rectangles",
+            "Esc x3 quickly: Quit MeasureBox",
+            "Ctrl+Shift+D or Ctrl+Shift+R: Force Draw Mode",
+            "Ctrl+Shift+P or Ctrl+Shift+S: Force Pass-through Mode",
+        ]
+        for label in entries:
+            action = QAction(label, shortcuts_menu)
+            action.setEnabled(False)
+            shortcuts_menu.addAction(action)
+        return shortcuts_menu
 
     def _build_tray(self) -> QSystemTrayIcon:
         """Create tray icon and context menu.
@@ -1555,6 +1666,14 @@ class MeasureBoxController(QObject):
         self.autostart_action.toggled.connect(self.toggle_autostart)
         menu.addAction(self.autostart_action)
 
+        self.status_notifications_action = QAction("Show Status Notifications", menu)
+        self.status_notifications_action.setCheckable(True)
+        self.status_notifications_action.setChecked(self.status_notifications_enabled)
+        self.status_notifications_action.toggled.connect(self.toggle_status_notifications)
+        menu.addAction(self.status_notifications_action)
+
+        menu.addSeparator()
+        menu.addMenu(self._build_shortcuts_menu(menu))
         menu.addSeparator()
 
         about_action = QAction("About", menu)
@@ -1601,15 +1720,27 @@ class MeasureBoxController(QObject):
         script_path = Path(__file__).resolve().parent / "start_measurebox_desktop.sh"
         return f"bash {shlex.quote(str(script_path))}"
 
-    def _show_message(self, title: str, message: str) -> None:
-        """Show tray notification if system tray is available.
+    def _show_message(self, title: str, message: str, desktop_notification: bool = False) -> None:
+        """Show tray notification and optional desktop notification.
 
         :param title: Notification title.
         :param message: Notification message text.
+        :param desktop_notification: True to force Linux desktop notification.
         :return: None.
         """
+        if not self.status_notifications_enabled:
+            return
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 2200)
+        if not desktop_notification:
+            return
+        notify_send = which("notify-send")
+        if notify_send is None:
+            return
+        subprocess.run(
+            [notify_send, "--app-name", "MeasureBox", title, message],
+            check=False,
+        )
 
     def _save_config(self) -> None:
         """Persist current mutable settings.
@@ -1629,6 +1760,7 @@ class MeasureBoxController(QObject):
             self.fill_color.alpha(),
         )
         self.config.autostart_enabled = self.autostart_action.isChecked()
+        self.config.status_notifications_enabled = self.status_notifications_enabled
         self.config_manager.save(self.config)
 
 
