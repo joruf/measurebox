@@ -6,7 +6,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QCursor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QApplication, QGraphicsItem, QGraphicsRectItem
 
-from measurebox.geometry import normalize_rect
+from measurebox.geometry import compute_resized_scene_rect, normalize_rect
 
 
 class ResizableRectItem(QGraphicsRectItem):
@@ -14,6 +14,16 @@ class ResizableRectItem(QGraphicsRectItem):
 
     HANDLE_SIZE = 8.0
     MIN_SIZE = 6.0
+    HANDLE_ORDER = (
+        "top_left",
+        "top_right",
+        "bottom_left",
+        "bottom_right",
+        "top",
+        "bottom",
+        "left",
+        "right",
+    )
 
     def __init__(self, scene_rect: QRectF, line_color: QColor, fill_color: QColor) -> None:
         """Create a new rectangle item.
@@ -89,6 +99,18 @@ class ResizableRectItem(QGraphicsRectItem):
             top_margin = max(top_margin, 26.0)
         return self.rect().adjusted(-margin, -top_margin, margin, margin)
 
+    def shape(self) -> QPainterPath:
+        """Return hit-test shape including handle area when selected.
+
+        :return: Item shape path used for mouse interaction.
+        """
+        path = QPainterPath()
+        if self.isSelected():
+            path.addRect(self.boundingRect())
+        else:
+            path.addRect(self.rect())
+        return path
+
     def set_ruler_options(self, enabled: bool, outside: bool) -> None:
         """Set ruler rendering options for this rectangle.
 
@@ -151,6 +173,7 @@ class ResizableRectItem(QGraphicsRectItem):
             if handle is not None:
                 self._active_handle = handle
                 self._is_resizing = True
+                self.grabMouse()
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -177,6 +200,8 @@ class ResizableRectItem(QGraphicsRectItem):
         if self._is_resizing:
             self._is_resizing = False
             self._active_handle = None
+            if self.scene() is not None and self.scene().mouseGrabberItem() is self:
+                self.ungrabMouse()
             self._update_measure_label()
             event.accept()
             return
@@ -191,6 +216,11 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: Result passed to Qt.
         """
         result = super().itemChange(change, value)
+        if change in {
+            QGraphicsItem.GraphicsItemChange.ItemSelectedChange,
+            QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged,
+        }:
+            self.prepareGeometryChange()
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self._update_measure_label()
         return result
@@ -351,8 +381,10 @@ class ResizableRectItem(QGraphicsRectItem):
         :param local_pos: Mouse position in item coordinates.
         :return: Handle identifier or None.
         """
-        for name, handle_rect in self._handle_rects().items():
-            if handle_rect.contains(local_pos):
+        handle_rects = self._handle_rects()
+        for name in self.HANDLE_ORDER:
+            handle_rect = handle_rects.get(name)
+            if handle_rect is not None and handle_rect.contains(local_pos):
                 return name
         return None
 
@@ -384,25 +416,16 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: None.
         """
         current = self._scene_rect()
-        left = current.left()
-        right = current.right()
-        top = current.top()
-        bottom = current.bottom()
-
-        if handle in {"top_left", "left", "bottom_left"}:
-            left = scene_pos.x()
-        if handle in {"top_right", "right", "bottom_right"}:
-            right = scene_pos.x()
-        if handle in {"top_left", "top", "top_right"}:
-            top = scene_pos.y()
-        if handle in {"bottom_left", "bottom", "bottom_right"}:
-            bottom = scene_pos.y()
-
-        new_rect = QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
-        if new_rect.width() < self.MIN_SIZE:
-            new_rect.setWidth(self.MIN_SIZE)
-        if new_rect.height() < self.MIN_SIZE:
-            new_rect.setHeight(self.MIN_SIZE)
+        new_rect = compute_resized_scene_rect(
+            current.left(),
+            current.top(),
+            current.right(),
+            current.bottom(),
+            handle,
+            scene_pos.x(),
+            scene_pos.y(),
+            self.MIN_SIZE,
+        )
         self.setPos(new_rect.topLeft())
         self.setRect(QRectF(0.0, 0.0, new_rect.width(), new_rect.height()))
         self.update()

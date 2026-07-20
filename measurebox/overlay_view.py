@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pynput import mouse
-from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication, QKeyEvent, QMouseEvent, QPainter
 from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
@@ -13,6 +13,9 @@ from measurebox.resizable_rect_item import ResizableRectItem
 
 class OverlayView(QGraphicsView):
     """Transparent always-on-top overlay for drawing and editing rectangles."""
+
+    rectangle_created = pyqtSignal()
+    interaction_lock_changed = pyqtSignal(bool)
 
     def __init__(self, line_color: QColor, fill_color: QColor) -> None:
         """Build overlay scene and configure window flags.
@@ -125,8 +128,42 @@ class OverlayView(QGraphicsView):
         :param locked: True to capture input, False for click/scroll-through.
         :return: None.
         """
+        if self._interaction_locked == locked:
+            return
         self._interaction_locked = locked
         self._apply_mouse_transparency()
+        self.interaction_lock_changed.emit(locked)
+
+    def has_active_rectangle(self) -> bool:
+        """Check whether the overlay currently tracks an active rectangle.
+
+        :return: True when at least one rectangle exists.
+        """
+        return bool(self._items)
+
+    def is_global_point_on_active_item(self, x: int, y: int) -> bool:
+        """Check whether a global point is on the active rectangle interaction area.
+
+        :param x: Global X coordinate.
+        :param y: Global Y coordinate.
+        :return: True when the point can interact with the active rectangle.
+        """
+        if not self._items:
+            return False
+        active_item = self._items[-1]
+        if active_item.scene() is None:
+            return False
+        local_pos = self.mapFromGlobal(QPointF(float(x), float(y)).toPoint())
+        scene_pos = self.mapToScene(local_pos)
+        return self._is_point_interacting_with_item(scene_pos, active_item)
+
+    def try_activate_interaction_at_cursor(self) -> bool:
+        """Enable edit interaction when the cursor hits the active rectangle.
+
+        :return: True if interaction was activated.
+        """
+        cursor_pos = QCursor.pos()
+        return self.try_activate_interaction_at_global(cursor_pos.x(), cursor_pos.y())
 
     def set_auto_interaction(self, enabled: bool) -> None:
         """Enable or disable automatic draw/pass-through switching.
@@ -184,6 +221,9 @@ class OverlayView(QGraphicsView):
         self.clear_selection()
         active_item.setSelected(True)
         active_item.setFocus()
+        self.activateWindow()
+        self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+        self.reapply_interaction_state()
         self.raise_()
         return True
 
@@ -289,6 +329,15 @@ class OverlayView(QGraphicsView):
 
         if target is None:
             if self._interaction_locked:
+                if (
+                    active_item is not None
+                    and not self._is_point_interacting_with_item(scene_pos, active_item)
+                ):
+                    self.clear_selection()
+                    self.set_interaction_lock(False)
+                    event.accept()
+                    return
+
                 self.clear_selection()
                 self._drawing_active = True
                 self._draw_start = scene_pos
@@ -347,7 +396,7 @@ class OverlayView(QGraphicsView):
             self._preview_item = None
             if created_rectangle:
                 self.clear_selection()
-                self.set_interaction_lock(False)
+                self.rectangle_created.emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)

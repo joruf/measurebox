@@ -10,6 +10,7 @@ from PyQt6.QtCore import QPointF
 
 from measurebox import AppConfig, AutostartManager, ConfigManager, normalize_rect
 from measurebox.bootstrap import should_show_install_gui
+from measurebox.geometry import compute_resized_scene_rect
 from measurebox.install_progress_gui import map_installer_line_to_status
 
 
@@ -49,6 +50,38 @@ def test_autostart_manager_enable_disable(tmp_path: Path) -> None:
 
     manager.disable()
     assert manager.is_enabled() is False
+
+
+def test_compute_resized_scene_rect_keeps_opposite_anchor() -> None:
+    """Resizing from one handle should keep the opposite edge anchored."""
+    resized = compute_resized_scene_rect(
+        left=100.0,
+        top=100.0,
+        right=200.0,
+        bottom=200.0,
+        handle="bottom_left",
+        scene_x=50.0,
+        scene_y=250.0,
+        min_size=6.0,
+    )
+    assert resized.left() == 50.0
+    assert resized.top() == 100.0
+    assert resized.right() == 200.0
+    assert resized.bottom() == 250.0
+
+    shrunk = compute_resized_scene_rect(
+        left=100.0,
+        top=100.0,
+        right=200.0,
+        bottom=200.0,
+        handle="left",
+        scene_x=199.0,
+        scene_y=150.0,
+        min_size=6.0,
+    )
+    assert shrunk.right() == 200.0
+    assert shrunk.width() == 6.0
+    assert shrunk.left() == 194.0
 
 
 def test_map_installer_line_to_status() -> None:

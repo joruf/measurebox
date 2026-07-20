@@ -9,7 +9,7 @@ from shutil import which
 from time import monotonic
 
 from PyQt6.QtCore import QObject, Qt, QTimer
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QCursor, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QColorDialog,
@@ -55,6 +55,7 @@ class MeasureBoxController(QObject):
         self.hotkey_bridge.ctrl_click_requested.connect(self.handle_ctrl_click_activation)
         self.hotkey_bridge.ctrl_state_changed.connect(self.handle_ctrl_state_changed)
         self.hotkey_bridge.color_pick_requested.connect(self.handle_color_pick_at)
+        self.hotkey_bridge.ctrl_hover_requested.connect(self.handle_ctrl_hover)
         self.draw_mode_hotkey_listener_primary = GlobalHotkeyListener(
             "<ctrl>+<shift>+d",
             self.hotkey_bridge.draw_mode_requested.emit,
@@ -76,12 +77,22 @@ class MeasureBoxController(QObject):
             self.hotkey_bridge.ctrl_click_requested.emit,
             self.hotkey_bridge.ctrl_state_changed.emit,
             self.hotkey_bridge.color_pick_requested.emit,
+            self.hotkey_bridge.ctrl_hover_requested.emit,
         )
+        self.overlay.rectangle_created.connect(self._on_rectangle_created)
+        self.overlay.interaction_lock_changed.connect(self._on_overlay_interaction_lock_changed)
         self.tray_icon = self._build_tray()
         self.edit_mode_enabled = True
         self.interaction_locked = True
+        self._ctrl_physically_held = False
         self._esc_quit_window_seconds = 1.5
         self._esc_press_times: list[float] = []
+        self._quit_message_shown = False
+        self._shutdown_complete = False
+        self._esc_clear_notify_timer = QTimer(self)
+        self._esc_clear_notify_timer.setSingleShot(True)
+        self._esc_clear_notify_timer.setInterval(int(self._esc_quit_window_seconds * 1000) + 100)
+        self._esc_clear_notify_timer.timeout.connect(self._notify_esc_clear_if_idle)
         self.passthrough_refresh_timer = QTimer(self)
         self.passthrough_refresh_timer.setInterval(1000)
         self.passthrough_refresh_timer.timeout.connect(self.refresh_passthrough_mode)
@@ -112,6 +123,10 @@ class MeasureBoxController(QObject):
 
         :return: None.
         """
+        if self._shutdown_complete:
+            return
+        self._shutdown_complete = True
+        self._esc_clear_notify_timer.stop()
         self.draw_mode_hotkey_listener_primary.stop()
         self.draw_mode_hotkey_listener_fallback.stop()
         self.passthrough_hotkey_listener_primary.stop()
@@ -162,10 +177,7 @@ class MeasureBoxController(QObject):
         :param y: Global Y coordinate.
         :return: None.
         """
-        if self.overlay.try_activate_interaction_at_global(x, y):
-            self.interaction_locked = True
-            self.draw_mode_action.setChecked(True)
-            self.passthrough_mode_action.setChecked(False)
+        self._activate_ctrl_interaction_at(x, y)
 
     def handle_ctrl_state_changed(self, pressed: bool) -> None:
         """Switch between pass-through and draw interaction by Ctrl state.
@@ -173,10 +185,72 @@ class MeasureBoxController(QObject):
         :param pressed: True while Ctrl is pressed.
         :return: None.
         """
+        self._ctrl_physically_held = pressed
         if pressed:
-            self.activate_draw_mode(show_message=False)
+            self._activate_ctrl_interaction_at_cursor()
             return
         self.activate_passthrough_mode(show_message=False)
+
+    def handle_ctrl_hover(self, x: int, y: int) -> None:
+        """Pre-lock rectangle interaction while Ctrl is held over the active item.
+
+        :param x: Global X coordinate.
+        :param y: Global Y coordinate.
+        :return: None.
+        """
+        if not self._ctrl_physically_held:
+            return
+        if not self.overlay.is_global_point_on_active_item(x, y):
+            return
+        self._activate_ctrl_interaction_at(x, y)
+
+    def _activate_ctrl_interaction_at_cursor(self) -> None:
+        """Activate Ctrl interaction for the current cursor position.
+
+        :return: None.
+        """
+        cursor_pos = QCursor.pos()
+        self._activate_ctrl_interaction_at(cursor_pos.x(), cursor_pos.y())
+
+    def _activate_ctrl_interaction_at(self, x: int, y: int) -> None:
+        """Activate draw or rectangle interaction for a global point.
+
+        :param x: Global X coordinate.
+        :param y: Global Y coordinate.
+        :return: None.
+        """
+        if self.overlay.try_activate_interaction_at_global(x, y):
+            self.interaction_locked = True
+            self.draw_mode_action.setChecked(True)
+            self.passthrough_mode_action.setChecked(False)
+            return
+        if not self.overlay.has_active_rectangle():
+            self.activate_draw_mode(show_message=False)
+            return
+        self._release_overlay_interaction()
+
+    def _release_overlay_interaction(self) -> None:
+        """Release overlay pointer capture while keeping edit mode available.
+
+        :return: None.
+        """
+        self.interaction_locked = False
+        self.overlay.set_interaction_lock(False)
+
+    def _on_rectangle_created(self) -> None:
+        """Return to pass-through interaction after a rectangle was drawn.
+
+        :return: None.
+        """
+        self._release_overlay_interaction()
+
+    def _on_overlay_interaction_lock_changed(self, locked: bool) -> None:
+        """Keep controller state aligned with overlay interaction lock changes.
+
+        :param locked: Current overlay interaction lock state.
+        :return: None.
+        """
+        self.interaction_locked = locked
 
     def handle_color_pick_at(self, x: int, y: int) -> None:
         """Pick color at global screen coordinates and copy it to clipboard.
@@ -199,7 +273,7 @@ class MeasureBoxController(QObject):
         clipboard = self.app.clipboard()
         clipboard.setText(color_hex)
         self.overlay.set_active_pick_result(color_hex, x, y)
-        self._show_message("MeasureBox", f"Color {color_hex} copied to clipboard.", desktop_notification=True)
+        self._show_message("MeasureBox", f"Color {color_hex} copied to clipboard.")
 
     def refresh_passthrough_mode(self) -> None:
         """Re-apply pass-through mode every second when currently active.
@@ -255,14 +329,16 @@ class MeasureBoxController(QObject):
         self.overlay.set_fill_color(self.fill_color)
         self._save_config()
 
-    def clear_all_rectangles(self) -> None:
+    def clear_all_rectangles(self, show_message: bool = True) -> None:
         """Delete all rectangles from overlay scene.
 
+        :param show_message: True to show a tray notification after clearing.
         :return: None.
         """
         self.overlay.clear_all()
         self.activate_draw_mode(show_message=False)
-        self._show_message("MeasureBox", "All rectangles cleared.")
+        if show_message:
+            self._show_message("MeasureBox", "All rectangles cleared.")
 
     def handle_esc_pressed(self) -> None:
         """Clear overlay and quit when Esc is pressed three times quickly.
@@ -278,11 +354,20 @@ class MeasureBoxController(QObject):
         self._esc_press_times.append(now)
 
         if len(self._esc_press_times) >= 3:
-            self._show_message("MeasureBox", "Esc x3 detected. Exiting MeasureBox.")
+            self._esc_clear_notify_timer.stop()
             self.quit_application()
             return
 
-        self.clear_all_rectangles()
+        self.overlay.clear_all()
+        self.activate_draw_mode(show_message=False)
+        self._esc_clear_notify_timer.start()
+
+    def _notify_esc_clear_if_idle(self) -> None:
+        """Show a clear notification after Esc was not followed by a quick quit.
+
+        :return: None.
+        """
+        self._show_message("MeasureBox", "All rectangles cleared.")
 
     def toggle_autostart(self, checked: bool) -> None:
         """Enable or disable Linux desktop autostart.
@@ -337,6 +422,9 @@ class MeasureBoxController(QObject):
 
         :return: None.
         """
+        if not self._quit_message_shown:
+            self._quit_message_shown = True
+            self._show_message("MeasureBox", "MeasureBox closed.")
         self.shutdown()
         self.app.quit()
 
