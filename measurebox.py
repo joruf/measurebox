@@ -204,6 +204,8 @@ class AppConfig:
     fill_rgba: tuple[int, int, int, int] = (0, 255, 0, 51)
     autostart_enabled: bool = False
     status_notifications_enabled: bool = True
+    ruler_enabled: bool = False
+    ruler_outside: bool = False
 
 
 class ConfigManager:
@@ -233,11 +235,15 @@ class ConfigManager:
         fill_rgba = self._as_rgba(payload.get("fill_rgba"), (0, 255, 0, 51))
         autostart_enabled = bool(payload.get("autostart_enabled", False))
         status_notifications_enabled = bool(payload.get("status_notifications_enabled", True))
+        ruler_enabled = bool(payload.get("ruler_enabled", False))
+        ruler_outside = bool(payload.get("ruler_outside", False))
         return AppConfig(
             line_rgba=line_rgba,
             fill_rgba=fill_rgba,
             autostart_enabled=autostart_enabled,
             status_notifications_enabled=status_notifications_enabled,
+            ruler_enabled=ruler_enabled,
+            ruler_outside=ruler_outside,
         )
 
     def save(self, config: AppConfig) -> None:
@@ -252,6 +258,8 @@ class ConfigManager:
             "fill_rgba": list(config.fill_rgba),
             "autostart_enabled": config.autostart_enabled,
             "status_notifications_enabled": config.status_notifications_enabled,
+            "ruler_enabled": config.ruler_enabled,
+            "ruler_outside": config.ruler_outside,
         }
         self.config_path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=True),
@@ -510,6 +518,8 @@ class ResizableRectItem(QGraphicsRectItem):
         self._picked_color_hex = "-"
         self._picked_position_text = "-"
         self._label_text = ""
+        self._ruler_enabled = False
+        self._ruler_outside = False
         self._label_font = QFont()
         self._label_font.setPointSize(9)
         self._apply_style()
@@ -552,7 +562,24 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: Expanded bounding rectangle.
         """
         margin = self.HANDLE_SIZE
-        return self.rect().adjusted(-margin, -margin, margin, margin)
+        if self._ruler_enabled and self._ruler_outside:
+            margin = max(margin, 20.0)
+        top_margin = margin
+        if self._ruler_enabled and not self._ruler_outside:
+            top_margin = max(top_margin, 26.0)
+        return self.rect().adjusted(-margin, -top_margin, margin, margin)
+
+    def set_ruler_options(self, enabled: bool, outside: bool) -> None:
+        """Set ruler rendering options for this rectangle.
+
+        :param enabled: True to render pixel ruler.
+        :param outside: True to draw ruler outside rectangle border.
+        :return: None.
+        """
+        self.prepareGeometryChange()
+        self._ruler_enabled = enabled
+        self._ruler_outside = outside
+        self.update()
 
     def paint(self, painter: QPainter, option, widget=None) -> None:  # type: ignore[override]
         """Paint rectangle and resize handles when selected.
@@ -563,6 +590,7 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: None.
         """
         super().paint(painter, option, widget)
+        self._draw_ruler(painter)
         self._draw_label(painter)
         if not self.isSelected():
             return
@@ -689,11 +717,73 @@ class ResizableRectItem(QGraphicsRectItem):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         path = QPainterPath()
-        baseline = QPointF(6.0, 16.0)
+        baseline_y = 16.0
+        if self._ruler_enabled and not self._ruler_outside:
+            baseline_y = -6.0
+        baseline = QPointF(6.0, baseline_y)
         path.addText(baseline, self._label_font, self._label_text)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(0, 0, 0, 235))
         painter.drawPath(path)
+        painter.restore()
+
+    def _draw_ruler(self, painter: QPainter) -> None:
+        """Draw optional pixel ruler on top and left edges.
+
+        :param painter: Active painter.
+        :return: None.
+        """
+        if not self._ruler_enabled:
+            return
+        rect = self.rect()
+        if rect.width() < 10 or rect.height() < 10:
+            return
+
+        step = 10
+        major_step = 50
+        major_size = 10
+        minor_size = 5
+        text_offset = 2
+        label_is_outside_top = self._ruler_enabled and not self._ruler_outside
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(QPen(QColor(0, 0, 0, 220), 1))
+        font = QFont(self._label_font)
+        font.setPointSize(8)
+        painter.setFont(font)
+
+        base_y = 0.0
+        base_x = 0.0
+
+        for x in range(0, int(rect.width()) + 1, step):
+            tick_size = major_size if x % major_step == 0 else minor_size
+            if self._ruler_outside:
+                painter.drawLine(QPointF(float(x), base_y), QPointF(float(x), base_y - tick_size))
+            else:
+                painter.drawLine(QPointF(float(x), base_y), QPointF(float(x), base_y + tick_size))
+            if x % major_step == 0:
+                if label_is_outside_top and x == 0:
+                    continue
+                if self._ruler_outside:
+                    painter.drawText(QPointF(float(x) + text_offset, base_y - major_size - 2), f"{x}px")
+                else:
+                    painter.drawText(QPointF(float(x) + text_offset, base_y + major_size + 10), f"{x}px")
+
+        for y in range(0, int(rect.height()) + 1, step):
+            tick_size = major_size if y % major_step == 0 else minor_size
+            if self._ruler_outside:
+                painter.drawLine(QPointF(base_x, float(y)), QPointF(base_x - tick_size, float(y)))
+            else:
+                painter.drawLine(QPointF(base_x, float(y)), QPointF(base_x + tick_size, float(y)))
+            if y % major_step == 0:
+                if label_is_outside_top and y == 0:
+                    continue
+                if self._ruler_outside:
+                    painter.drawText(QPointF(base_x - major_size - 28, float(y) - text_offset), f"{y}px")
+                else:
+                    painter.drawText(QPointF(base_x + major_size + 2, float(y) - text_offset), f"{y}px")
+
         painter.restore()
 
     def _set_cursor_for_handle(self, handle: str | None) -> None:
@@ -823,6 +913,8 @@ class OverlayView(QGraphicsView):
         self._border_activation_tolerance = 10.0
         self._body_activation_padding = 4.0
         self._transparent_state_applied: bool | None = None
+        self._ruler_enabled = False
+        self._ruler_outside = False
         self._mouse_controller = mouse.Controller()
         self._forwarding_wheel = False
         self._wheel_angle_remainder_x = 0
@@ -876,6 +968,18 @@ class OverlayView(QGraphicsView):
         self._fill_color = QColor(color)
         for item in self._items:
             item.set_colors(self._line_color, self._fill_color)
+
+    def set_ruler_options(self, enabled: bool, outside: bool) -> None:
+        """Set pixel ruler options for existing and new rectangles.
+
+        :param enabled: True to render ruler.
+        :param outside: True to draw ruler outside rectangle.
+        :return: None.
+        """
+        self._ruler_enabled = enabled
+        self._ruler_outside = outside
+        for item in self._items:
+            item.set_ruler_options(enabled, outside)
 
     def set_edit_mode(self, enabled: bool) -> None:
         """Enable or disable interactive editing mode.
@@ -1071,6 +1175,7 @@ class OverlayView(QGraphicsView):
                 self._prepare_slot_for_new_rectangle()
                 start_rect = QRectF(scene_pos, scene_pos)
                 self._preview_item = ResizableRectItem(start_rect, self._line_color, self._fill_color)
+                self._preview_item.set_ruler_options(self._ruler_enabled, self._ruler_outside)
                 self.scene.addItem(self._preview_item)
                 self._items.append(self._preview_item)
                 self._preview_item.setSelected(True)
@@ -1334,9 +1439,12 @@ class MeasureBoxController(QObject):
         if self.autostart_manager.is_enabled():
             self.config.autostart_enabled = True
         self.status_notifications_enabled = self.config.status_notifications_enabled
+        self.ruler_enabled = self.config.ruler_enabled
+        self.ruler_outside = self.config.ruler_outside
         self.line_color = QColor(*self.config.line_rgba)
         self.fill_color = QColor(*self.config.fill_rgba)
         self.overlay = OverlayView(self.line_color, self.fill_color)
+        self.overlay.set_ruler_options(self.ruler_enabled, self.ruler_outside)
         self.hotkey_bridge = GlobalHotkeyBridge()
         self.hotkey_bridge.draw_mode_requested.connect(self.activate_draw_mode)
         self.hotkey_bridge.passthrough_mode_requested.connect(self.activate_passthrough_mode)
@@ -1603,6 +1711,29 @@ class MeasureBoxController(QObject):
         self.config.status_notifications_enabled = checked
         self._save_config()
 
+    def toggle_ruler_enabled(self, checked: bool) -> None:
+        """Enable or disable pixel ruler rendering.
+
+        :param checked: Action checked state.
+        :return: None.
+        """
+        self.ruler_enabled = checked
+        self.overlay.set_ruler_options(self.ruler_enabled, self.ruler_outside)
+        self.ruler_outside_action.setEnabled(checked)
+        self.config.ruler_enabled = checked
+        self._save_config()
+
+    def toggle_ruler_outside(self, checked: bool) -> None:
+        """Set whether ruler is drawn outside rectangle bounds.
+
+        :param checked: Action checked state.
+        :return: None.
+        """
+        self.ruler_outside = checked
+        self.overlay.set_ruler_options(self.ruler_enabled, self.ruler_outside)
+        self.config.ruler_outside = checked
+        self._save_config()
+
     def quit_application(self) -> None:
         """Exit the application cleanly.
 
@@ -1706,6 +1837,19 @@ class MeasureBoxController(QObject):
         self.status_notifications_action.toggled.connect(self.toggle_status_notifications)
         menu.addAction(self.status_notifications_action)
 
+        self.ruler_enabled_action = QAction("Show Pixel Ruler (px)", menu)
+        self.ruler_enabled_action.setCheckable(True)
+        self.ruler_enabled_action.setChecked(self.ruler_enabled)
+        self.ruler_enabled_action.toggled.connect(self.toggle_ruler_enabled)
+        menu.addAction(self.ruler_enabled_action)
+
+        self.ruler_outside_action = QAction("Ruler Outside Rectangle", menu)
+        self.ruler_outside_action.setCheckable(True)
+        self.ruler_outside_action.setChecked(self.ruler_outside)
+        self.ruler_outside_action.setEnabled(self.ruler_enabled)
+        self.ruler_outside_action.toggled.connect(self.toggle_ruler_outside)
+        menu.addAction(self.ruler_outside_action)
+
         menu.addSeparator()
         menu.addMenu(self._build_shortcuts_menu(menu))
         menu.addSeparator()
@@ -1795,6 +1939,8 @@ class MeasureBoxController(QObject):
         )
         self.config.autostart_enabled = self.autostart_action.isChecked()
         self.config.status_notifications_enabled = self.status_notifications_enabled
+        self.config.ruler_enabled = self.ruler_enabled
+        self.config.ruler_outside = self.ruler_outside
         self.config_manager.save(self.config)
 
 
