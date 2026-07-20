@@ -1488,6 +1488,24 @@ class MeasureBoxController(QObject):
         self.shutdown()
         self.app.quit()
 
+    def show_about_dialog(self) -> None:
+        """Show About dialog with project and maintainer information.
+
+        :return: None.
+        """
+        QMessageBox.information(
+            None,
+            "About MeasureBox",
+            (
+                "MeasureBox\n"
+                "X11 overlay ruler with Ctrl-to-edit and pass-through mode.\n\n"
+                "Joachim Ruf\n"
+                "Loresoft\n"
+                "https://www.loresoft.de\n"
+                "https://github.com/joruf/"
+            ),
+        )
+
     def _build_tray(self) -> QSystemTrayIcon:
         """Create tray icon and context menu.
 
@@ -1538,6 +1556,10 @@ class MeasureBoxController(QObject):
         menu.addAction(self.autostart_action)
 
         menu.addSeparator()
+
+        about_action = QAction("About", menu)
+        about_action.triggered.connect(self.show_about_dialog)
+        menu.addAction(about_action)
 
         quit_action = QAction("Quit", menu)
         quit_action.triggered.connect(self.quit_application)
