@@ -45,6 +45,7 @@ class ResizableRectItem(QGraphicsRectItem):
         self._fill_color = QColor(fill_color)
         self._active_handle: str | None = None
         self._is_resizing = False
+        self._show_edit_overlay = False
         self._picked_color_hex = "-"
         self._picked_position_text = "-"
         self._label_text = ""
@@ -105,11 +106,21 @@ class ResizableRectItem(QGraphicsRectItem):
         :return: Item shape path used for mouse interaction.
         """
         path = QPainterPath()
-        if self.isSelected():
+        if self.isSelected() and self._show_edit_overlay:
             path.addRect(self.boundingRect())
         else:
             path.addRect(self.rect())
         return path
+
+    def set_edit_overlay_visible(self, visible: bool) -> None:
+        """Set whether move/resize overlay visuals should be rendered.
+
+        :param visible: True to show handles and extended hit area.
+        :return: None.
+        """
+        self.prepareGeometryChange()
+        self._show_edit_overlay = visible
+        self.update()
 
     def set_ruler_options(self, enabled: bool, outside: bool) -> None:
         """Set ruler rendering options for this rectangle.
@@ -131,10 +142,14 @@ class ResizableRectItem(QGraphicsRectItem):
         :param widget: Optional paint widget.
         :return: None.
         """
-        super().paint(painter, option, widget)
+        painter.save()
+        painter.setPen(self.pen())
+        painter.setBrush(self.brush())
+        painter.drawRect(self.rect())
+        painter.restore()
         self._draw_ruler(painter)
         self._draw_label(painter)
-        if not self.isSelected():
+        if not self.isSelected() or not self._show_edit_overlay:
             return
         painter.save()
         painter.setPen(QPen(QColor(255, 255, 255, 230), 1))

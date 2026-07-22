@@ -117,7 +117,7 @@ class MeasureBoxController(QObject):
         QTimer.singleShot(250, self._stabilize_draw_mode_after_start)
         self._show_message(
             "MeasureBox active",
-            "Hold Ctrl + mouse for draw/edit | Esc: Clear all.",
+            "Hold Left Shift + mouse for draw/edit | Esc: Clear all.",
         )
 
     def shutdown(self) -> None:
@@ -173,7 +173,7 @@ class MeasureBoxController(QObject):
             self._show_message("MeasureBox", "Mode: PASS-THROUGH")
 
     def handle_ctrl_click_activation(self, x: int, y: int) -> None:
-        """Activate draw interaction when Ctrl+LeftClick hits rectangle.
+        """Activate draw interaction when Left-Shift+LeftClick hits rectangle.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -183,21 +183,22 @@ class MeasureBoxController(QObject):
         self._activate_ctrl_interaction_at(x, y)
 
     def handle_ctrl_state_changed(self, pressed: bool) -> None:
-        """Switch between pass-through and draw interaction by Ctrl state.
+        """Switch between pass-through and draw interaction by Left-Shift state.
 
-        :param pressed: True while Ctrl is pressed.
+        :param pressed: True while Left-Shift is pressed.
         :return: None.
         """
         self._ctrl_physically_held = pressed
         if pressed:
             self._update_crosshair_at_cursor()
-            self._activate_ctrl_interaction_at_cursor()
+            self.activate_draw_mode(show_message=False)
+            self.overlay.select_active_rectangle_for_edit()
             return
         self.overlay.clear_crosshair()
         self.activate_passthrough_mode(show_message=False)
 
     def handle_ctrl_hover(self, x: int, y: int) -> None:
-        """Pre-lock rectangle interaction while Ctrl is held over the active item.
+        """Pre-lock rectangle interaction while Left-Shift is held over the active item.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -212,7 +213,7 @@ class MeasureBoxController(QObject):
         self._activate_ctrl_interaction_at(x, y)
 
     def _activate_ctrl_interaction_at_cursor(self) -> None:
-        """Activate Ctrl interaction for the current cursor position.
+        """Activate Left-Shift interaction for the current cursor position.
 
         :return: None.
         """
@@ -478,7 +479,7 @@ class MeasureBoxController(QObject):
             "About MeasureBox",
             (
                 "MeasureBox\n"
-                "X11 overlay ruler with Ctrl-to-edit and pass-through mode.\n\n"
+                "X11 overlay ruler with Left-Shift-to-edit and pass-through mode.\n\n"
                 "Joachim Ruf\n"
                 "Loresoft\n"
                 "https://www.loresoft.de\n"
@@ -494,14 +495,14 @@ class MeasureBoxController(QObject):
         """
         shortcuts_menu = QMenu("Shortcuts & Controls", parent_menu)
         entries = [
-            "Hold Ctrl + Drag: Draw rectangle",
-            "Hold Ctrl + Click rectangle: Move/Resize",
-            "Hold Ctrl: Show crosshair at cursor",
-            "Ctrl + Left Double Click: Pick color to clipboard",
+            "Hold Left Shift + Drag: Draw rectangle",
+            "Hold Left Shift + Click rectangle: Move/Resize",
+            "Hold Left Shift: Show crosshair at cursor",
+            "Left Shift + Left Double Click: Pick color to clipboard",
             "Esc: Clear all rectangles",
             "Esc x3 quickly: Quit MeasureBox",
-            "Ctrl+Shift+D or Ctrl+Shift+R: Force Draw Mode",
-            "Ctrl+Shift+P or Ctrl+Shift+S: Force Pass-through Mode",
+            "CTRL+Shift+D or CTRL+Shift+R: Force Draw Mode",
+            "CTRL+Shift+P or CTRL+Shift+S: Force Pass-through Mode",
         ]
         for label in entries:
             action = QAction(label, shortcuts_menu)
@@ -522,14 +523,14 @@ class MeasureBoxController(QObject):
         self.mode_action_group = QActionGroup(menu)
         self.mode_action_group.setExclusive(True)
 
-        self.draw_mode_action = QAction("Draw Mode (Ctrl+Shift+D)", menu)
+        self.draw_mode_action = QAction("Draw Mode (CTRL+Shift+D)", menu)
         self.draw_mode_action.setCheckable(True)
         self.draw_mode_action.setChecked(True)
         self.draw_mode_action.triggered.connect(self.activate_draw_mode)
         self.mode_action_group.addAction(self.draw_mode_action)
         menu.addAction(self.draw_mode_action)
 
-        self.passthrough_mode_action = QAction("Pass-through Mode (Ctrl+Shift+P)", menu)
+        self.passthrough_mode_action = QAction("Pass-through Mode (CTRL+Shift+P)", menu)
         self.passthrough_mode_action.setCheckable(True)
         self.passthrough_mode_action.setChecked(False)
         self.passthrough_mode_action.triggered.connect(self.activate_passthrough_mode)
@@ -577,7 +578,7 @@ class MeasureBoxController(QObject):
         self.ruler_outside_action.toggled.connect(self.toggle_ruler_outside)
         menu.addAction(self.ruler_outside_action)
 
-        self.crosshair_action = QAction("Show Ctrl Crosshair", menu)
+        self.crosshair_action = QAction("Show Left Shift Crosshair", menu)
         self.crosshair_action.setCheckable(True)
         self.crosshair_action.setChecked(self.crosshair_enabled)
         self.crosshair_action.toggled.connect(self.toggle_crosshair_enabled)

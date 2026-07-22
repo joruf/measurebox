@@ -9,7 +9,7 @@ It lets you draw persistent rectangles on top of any app and displays live pixel
 
 ## Features
 
-- Global mode hotkeys: `Ctrl+Shift+D` or `Ctrl+Shift+R` (Draw), `Ctrl+Shift+P` or `Ctrl+Shift+S` (Pass-through)
+- Global mode hotkeys: `CTRL+Shift+D` or `CTRL+Shift+R` (Draw), `CTRL+Shift+P` or `CTRL+Shift+S` (Pass-through)
 - Single active rectangle (prepared for future multi-rectangle extension)
 - Move and resize rectangles with 8 handles
 - Label shows `x`, `y`, `w`, `h` in pixels
@@ -29,8 +29,9 @@ chmod +x measurebox.py
 
 On first start, MeasureBox installs missing dependencies automatically (Python packages and Linux Qt/X11 libraries). A small setup window may appear.
 
-- Switch to Draw Mode with `Ctrl+Shift+D` (fallback: `Ctrl+Shift+R`)
-- Switch to Pass-through Mode with `Ctrl+Shift+P` (fallback: `Ctrl+Shift+S`, background apps receive scroll/click input)
+- Switch to Draw Mode with `CTRL+Shift+D` (fallback: `CTRL+Shift+R`)
+- Switch to Pass-through Mode with `CTRL+Shift+P` (fallback: `CTRL+Shift+S`, background apps receive scroll/click input)
+- Hold `Left Shift` + mouse to draw/edit quickly
 - Press `Esc` to clear all rectangles from the screen
 - In edit mode:
   - Drag on empty area to draw one rectangle

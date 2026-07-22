@@ -54,7 +54,7 @@ class GlobalHotkeyListener:
 
 
 class GlobalCtrlClickListener:
-    """Listen for global Ctrl+LeftClick to enter edit mode."""
+    """Listen for global Left-Shift+LeftClick to enter edit mode."""
 
     def __init__(
         self,
@@ -66,9 +66,9 @@ class GlobalCtrlClickListener:
         """Store callback and initialize input listeners.
 
         :param on_ctrl_click: Callback receiving global click coordinates.
-        :param on_ctrl_state_changed: Callback for Ctrl pressed/released state.
-        :param on_click: Callback receiving Ctrl+left double-click coordinates.
-        :param on_ctrl_hover: Callback receiving global pointer coordinates while Ctrl is held.
+        :param on_ctrl_state_changed: Callback for Left-Shift pressed/released state.
+        :param on_click: Callback receiving Left-Shift+left double-click coordinates.
+        :param on_ctrl_hover: Callback receiving global pointer coordinates while Left-Shift is held.
         """
         self.on_ctrl_click = on_ctrl_click
         self.on_ctrl_state_changed = on_ctrl_state_changed
@@ -111,12 +111,12 @@ class GlobalCtrlClickListener:
             self.mouse_listener = None
 
     def _on_key_press(self, key) -> None:
-        """Track Ctrl key down state.
+        """Track Left-Shift key down state.
 
         :param key: Pressed key event.
         :return: None.
         """
-        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
+        if key == keyboard.Key.shift_l:
             emit_change = False
             with self._lock:
                 if not self._ctrl_down:
@@ -126,12 +126,12 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(True)
 
     def _on_key_release(self, key) -> None:
-        """Track Ctrl key release state.
+        """Track Left-Shift key release state.
 
         :param key: Released key event.
         :return: None.
         """
-        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}:
+        if key == keyboard.Key.shift_l:
             emit_change = False
             with self._lock:
                 if self._ctrl_down:
@@ -141,7 +141,7 @@ class GlobalCtrlClickListener:
                 self.on_ctrl_state_changed(False)
 
     def _on_click(self, x: float, y: float, button, pressed: bool) -> None:
-        """Emit callbacks for Ctrl click and Ctrl+left double click.
+        """Emit callbacks for Left-Shift click and Left-Shift+left double click.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.
@@ -176,7 +176,7 @@ class GlobalCtrlClickListener:
             self.on_ctrl_click(current_x, current_y)
 
     def _on_move(self, x: float, y: float) -> None:
-        """Emit hover callbacks while Ctrl is held for pre-locking rectangle interaction.
+        """Emit hover callbacks while Left-Shift is held for pre-locking rectangle interaction.
 
         :param x: Global X coordinate.
         :param y: Global Y coordinate.

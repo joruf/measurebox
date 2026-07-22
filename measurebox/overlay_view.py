@@ -109,9 +109,9 @@ class OverlayView(QGraphicsView):
             item.set_ruler_options(enabled, outside)
 
     def set_crosshair_enabled(self, enabled: bool) -> None:
-        """Enable or disable Ctrl crosshair rendering.
+        """Enable or disable Left-Shift crosshair rendering.
 
-        :param enabled: True to show crosshair while Ctrl is held.
+        :param enabled: True to show crosshair while Left-Shift is held.
         :return: None.
         """
         self._crosshair_enabled = enabled
@@ -134,7 +134,7 @@ class OverlayView(QGraphicsView):
         self.viewport().update()
 
     def clear_crosshair(self) -> None:
-        """Hide the Ctrl crosshair overlay.
+        """Hide the Left-Shift crosshair overlay.
 
         :return: None.
         """
@@ -168,6 +168,8 @@ class OverlayView(QGraphicsView):
         if self._interaction_locked == locked:
             return
         self._interaction_locked = locked
+        for item in self._items:
+            item.set_edit_overlay_visible(locked)
         self._apply_mouse_transparency()
         self.interaction_lock_changed.emit(locked)
 
@@ -292,6 +294,21 @@ class OverlayView(QGraphicsView):
         for item in self._items:
             item.setSelected(False)
 
+    def select_active_rectangle_for_edit(self) -> bool:
+        """Select and focus the active rectangle for immediate handle display.
+
+        :return: True when an active rectangle exists and was selected.
+        """
+        if not self._items:
+            return False
+        active_item = self._items[-1]
+        if active_item.scene() is None:
+            self.scene.addItem(active_item)
+        self.clear_selection()
+        active_item.setSelected(True)
+        active_item.setFocus()
+        return True
+
     def clear_all(self) -> None:
         """Remove all rectangles from the overlay.
 
@@ -381,6 +398,7 @@ class OverlayView(QGraphicsView):
                 self._prepare_slot_for_new_rectangle()
                 start_rect = QRectF(scene_pos, scene_pos)
                 self._preview_item = ResizableRectItem(start_rect, self._line_color, self._fill_color)
+                self._preview_item.set_edit_overlay_visible(self._interaction_locked)
                 self._preview_item.set_ruler_options(self._ruler_enabled, self._ruler_outside)
                 self.scene.addItem(self._preview_item)
                 self._items.append(self._preview_item)
@@ -485,7 +503,7 @@ class OverlayView(QGraphicsView):
         event.accept()
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # type: ignore[override]
-        """Draw transient Ctrl crosshair at the current cursor hotspot.
+        """Draw transient Left-Shift crosshair at the cursor hotspot.
 
         :param painter: Scene foreground painter.
         :param rect: Scene update rectangle.
